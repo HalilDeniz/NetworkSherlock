@@ -1,7 +1,7 @@
 # Port Scanner
 
 This is a Python command line tool for scanning open ports on a target machine. The tool allows the user to specify a range of ports, a specific port, or a comma-separated list of ports. It also allows the user to specify the number of threads to use for scanning.
-
+You can also find the use of the tool on my youtube address.
 ## Installation
 
 1. Clone the repository:
@@ -62,8 +62,6 @@ Port        Status   Service        VERSION
 Scan time: 0 minute 1.16 second
 ********************************************
 ```
-###
-- Youtube Video: https://youtu.be/GiwRDpOt1Fw
 
 ## License
 

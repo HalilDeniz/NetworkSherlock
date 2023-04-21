@@ -6,7 +6,7 @@ This is a Python command line tool for scanning open ports on a target machine. 
 
 1. Clone the repository:
     ```
-    git clone https://github.com/HalilDeniz/Malware-Scanner.git
+    git clone https://github.com/HalilDeniz/Port-scanner.git
     ```
 2. Install the required packages:
     ```

@@ -16,26 +16,34 @@ You can also find the use of the tool on my youtube address.
 ## Usage
 
 ```
-usage: scanner.py [-h] [-p PORTS] [-P {tcp,udp}] [-t THREADS] target
+root@denizhalil:~/Port-scanner# python3 scanner.py --help
+usage: scanner.py [-h] [-p PORTS] [-t THREADS] [-P {tcp,udp}] [-V] [-s SAVE_RESULTS] [-c] target
 
-Port Scanner - Scan open ports on a target machine.
+Port Scan Tool
 
 positional arguments:
-  target                Target IP or hostname
+  target                Target IP address or domain name
 
-optional arguments:
+options:
   -h, --help            show this help message and exit
   -p PORTS, --ports PORTS
-                        Ports to scan (e.g. 1-1024, 22, 80)
-  -P {tcp,udp}, --protocol {tcp,udp}
-                        Protocol to use for scanning (default: tcp)
+                        Ports to scan (e.g. 1-1024 or 21,22,80 or 80)
   -t THREADS, --threads THREADS
-                        Number of threads to use for scanning (default: 10)
+                        Number of threads to use
+  -P {tcp,udp}, --protocol {tcp,udp}
+                        Protocol to use for scanning
+  -V, --version-info    Used to get version information
+  -s SAVE_RESULTS, --save-results SAVE_RESULTS
+                        File to save scan results
+  -c, --ping-check      Perform ping check before scanning
 
-Examples:
-  scanner.py 192.168.1.1 -p 1-1024
-  scanner.py 192.168.1.1 -p 22,80,443 -t 50
-  scanner.py example.com -p 80 -P udp
+Example Uses:
+python3 scanner.py 192.168.1.4
+python3 scanner.py example.com -p 1-1024 --threads 20
+python3 scanner.py example.com -p 21,22,80,443 --protocol tcp
+python3 scanner.py 192.168.1.1 -p 80 --threads 5 --protocol udp
+python3 scanner.py example.com -p 1-65535 -t 50 -P tcp -V
+python3 scanner.py example.com -p 80,443,8080,8443 --threads 20 --protocol tcp --version-info
 ```
 ## OUTPUT EXAMPLE
 
@@ -62,6 +70,11 @@ Port        Status   Service        VERSION
 Scan time: 0 minute 1.16 second
 ********************************************
 ```
+## New Features
+
+- **Ping Check**: Added the `-c` or `--ping-check` flag to perform a ping check before scanning. If the host is unreachable, the program will skip the port scan for that host.
+
+
 ## Contributing
 Contributions are welcome! To contribute to Port-scanner, follow these steps:
 

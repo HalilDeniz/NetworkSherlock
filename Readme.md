@@ -1,4 +1,5 @@
 # **NetworkSherlock**
+<img src="img/NetworkSherlock.png"></img>
 
 **NetworkSherlock** is a powerful and flexible port scanning tool designed for network security professionals and penetration testers. 
 Capable of scanning IP ranges, CIDR blocks, and multiple targets efficiently, NetworkSherlock helps you identify vulnerabilities in your network with its detailed banner grabbing capabilities across various protocols.

@@ -1,15 +1,19 @@
 import sys
 import time
+import shodan
 import socket
 import argparse
 import threading
 import ipaddress
 import subprocess
-from rich import print
+import configparser
 from queue import Queue
+from colorama import Fore, Style, init
+
+init(autoreset=True)
 
 class PortScanner:
-    def __init__(self, targets, ports, threads=10, protocol='tcp', version_info=False, save_results=None, ping_check=False):
+    def __init__(self, targets, ports, threads=10, protocol='tcp', version_info=False, save_results=None, ping_check=False, config_file='networksherlock.cfg', use_shodan=False):
         self.targets = targets
         self.ports = ports
         self.threads = threads
@@ -18,6 +22,19 @@ class PortScanner:
         self.save_results = save_results
         self.ping_check = ping_check
         self.ip = None
+        self.config_file = config_file
+        self.use_shodan = use_shodan
+        if self.use_shodan:
+            self.shodan_key = self.load_shodan_key()
+            self.shodan_api = shodan.Shodan(self.shodan_key) if self.shodan_key else None
+        else:
+            self.shodan_api = None
+
+
+    def load_shodan_key(self):
+        config = configparser.ConfigParser()
+        config.read(self.config_file)
+        return config.get('SHODAN', 'api_key', fallback=None)
 
     def format_scan_time(self, seconds):
         minutes, seconds = divmod(seconds, 60)
@@ -57,12 +74,29 @@ class PortScanner:
             except OSError:
                 service = "unknown"
             banner = ""
+            shodan_info = ""
             if self.version_info:
                 banner = self.banner_grabbing(self.ip, port)
-            port_info = f"{port:<4}/{self.protocol}     open     {service:<14} {banner}"
+            if self.use_shodan and self.shodan_key:
+                try:
+                    shodan_result = self.shodan_api.host(self.ip)
+                    os_info = shodan_result.get('os', None)
+                    if os_info:
+                        shodan_info += f"   \t{' '*5}{Fore.CYAN}- OS     : {Style.RESET_ALL}{os_info}\n"
+                    for service_info in shodan_result.get('data', []):
+                        product = service_info.get('product')
+                        version = service_info.get('version')
+                        if product or version:
+                            shodan_info += f"   \t{' '*5}{Fore.CYAN}- Service:{Style.RESET_ALL} {product or 'Unknown'} Version: {version or 'Unknown'}\n"
+                except shodan.APIError as e:
+                    pass
+            if self.use_shodan:
+                port_info = f"{port:<4}/{self.protocol}     open     {service:<14} {banner}\n{Fore.BLUE}From Shodan:{Style.RESET_ALL}\n{shodan_info}"
+            else:
+                port_info = f"{port:<4}/{self.protocol}     open     {service:<14} {banner}{shodan_info}"
+
             self.open_ports.append(port_info)
         sock.close()
-
     def ping_check(self):
         command = ["ping", "-c", "1", self.ip]
         result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -135,22 +169,34 @@ class PortScanner:
             # Açık portları yazdır
             if self.open_ports:
                 print(f"********************************************")
-                print(f"Scanning target: {target}")
-                print(f"Scanning IP    : {self.ip}")
-                print(f"Ports          : {self.ports}")
-                print(f"Threads        : {self.threads}")
-                print(f"Protocol       : {self.protocol}")
+                print(f"{Fore.GREEN}Scanning target:{Style.RESET_ALL} {target}")
+                print(f"{Fore.GREEN}Scanning IP    :{Style.RESET_ALL} {self.ip}")
+                print(f"{Fore.GREEN}Ports          :{Style.RESET_ALL} {self.ports}")
+                print(f"{Fore.GREEN}Threads        :{Style.RESET_ALL} {self.threads}")
+                print(f"{Fore.GREEN}Protocol       :{Style.RESET_ALL} {self.protocol}")
                 print(f"---------------------------------------------")
                 if self.version_info:
-                    print(f"[red]Port        Status   Service           VERSION[/red]")
+                    print(f"{Fore.RED}Port        Status   Service           VERSION{Style.RESET_ALL}")
                 else:
-                    print(f"[red]Port        Status   Service[/red]")
+                    print(f"{Fore.RED}Port        Status   Service{Style.RESET_ALL}")
             for port_info in self.open_ports:
                 print(port_info)
+
+            if self.save_results:  # Sonuçları dosyaya yaz
+                with open(self.save_results, "a") as file:
+                    file.write(f"********************************************\n")
+                    file.write(f"Scanning target: {target}\n")
+                    file.write(f"Scanning IP    : {self.ip}\n")
+                    file.write(f"Ports          : {self.ports}\n")
+                    file.write(f"Threads        : {self.threads}\n")
+                    file.write(f"Protocol       : {self.protocol}\n")
+                    file.write(f"---------------------------------------------\n")
+                    for port_info in self.open_ports:
+                        file.write(f"{port_info}\n")
+                    #file.write("---------------------------------------------\n")
         print(f"---------------------------------------------")
 
 
-# Ana program akışı
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='NetworkSherlock: Port Scan Tool')
     parser.add_argument('target', type=str, help='Target IP address(es), range, or CIDR (e.g., 192.168.1.1, 192.168.1.1-192.168.1.5, 192.168.1.0/24)')
@@ -160,7 +206,9 @@ if __name__ == '__main__':
     parser.add_argument('-V', '--version-info', action='store_true', help='Used to get version information')
     parser.add_argument('-s', '--save-results', type=str, help='File to save scan results')
     parser.add_argument('-c', '--ping-check', action='store_true', help='Perform ping check before scanning')
+    parser.add_argument('--use-shodan', action='store_true', help='Enable Shodan integration for additional information')
+
     args = parser.parse_args()
 
-    scanner = PortScanner(args.target, args.ports, args.threads, args.protocol, args.version_info, args.save_results, args.ping_check)
+    scanner = PortScanner(args.target, args.ports, args.threads, args.protocol, args.version_info, args.save_results, args.ping_check, use_shodan=args.use_shodan)
     scanner.scan()

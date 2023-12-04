@@ -20,7 +20,8 @@ By combining local port scanning with Shodan's extensive database, NetworkSherlo
 - Colorful console output for better readability.
 - Shodan integration for enhanced scanning capabilities.
 - Configuration file support for Shodan API key.
-- 
+
+  
 ## **Installation**
 NetworkSherlock requires Python 3.6 or later.
 

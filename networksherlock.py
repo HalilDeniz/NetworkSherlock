@@ -79,7 +79,7 @@ class PortScanner:
                 banner = self.banner_grabbing(self.ip, port)
             if self.use_shodan and self.shodan_key:
                 try:
-                    shodan_result = self.shodan_api.host(self.ip)
+                    shodan_result = self.shodan_api.host(socket.gethostbyname(self.ip))
                     os_info = shodan_result.get('os', None)
                     if os_info:
                         shodan_info += f"   \t{' '*5}{Fore.CYAN}- OS     : {Style.RESET_ALL}{os_info}\n"
@@ -170,7 +170,7 @@ class PortScanner:
             if self.open_ports:
                 print(f"********************************************")
                 print(f"{Fore.GREEN}Scanning target:{Style.RESET_ALL} {target}")
-                print(f"{Fore.GREEN}Scanning IP    :{Style.RESET_ALL} {self.ip}")
+                print(f"{Fore.GREEN}Scanning IP    :{Style.RESET_ALL} {socket.gethostbyname(self.ip)}")
                 print(f"{Fore.GREEN}Ports          :{Style.RESET_ALL} {self.ports}")
                 print(f"{Fore.GREEN}Threads        :{Style.RESET_ALL} {self.threads}")
                 print(f"{Fore.GREEN}Protocol       :{Style.RESET_ALL} {self.protocol}")
@@ -186,7 +186,7 @@ class PortScanner:
                 with open(self.save_results, "a") as file:
                     file.write(f"********************************************\n")
                     file.write(f"Scanning target: {target}\n")
-                    file.write(f"Scanning IP    : {self.ip}\n")
+                    file.write(f"Scanning IP    : {socket.gethostbyname(self.ip)}\n")
                     file.write(f"Ports          : {self.ports}\n")
                     file.write(f"Threads        : {self.threads}\n")
                     file.write(f"Protocol       : {self.protocol}\n")

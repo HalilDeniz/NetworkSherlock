@@ -4,4 +4,4 @@ sys
 threading
 time
 queue
-rich
+shodan

@@ -1,8 +1,12 @@
 # **NetworkSherlock**
-<img src="img/NetworkSherlock.png"></img>
+<img src="img/NetworkSherlock1.png"></img>
 
 **NetworkSherlock** is a powerful and flexible port scanning tool designed for network security professionals and penetration testers. 
-Capable of scanning IP ranges, CIDR blocks, and multiple targets efficiently, NetworkSherlock helps you identify vulnerabilities in your network with its detailed banner grabbing capabilities across various protocols.
+With its advanced capabilities, NetworkSherlock can efficiently scan IP ranges, CIDR blocks, and multiple targets. 
+It stands out with its detailed banner grabbing capabilities across various protocols and integration with Shodan, the world's premier service for scanning and analyzing internet-connected devices. 
+This Shodan integration enables NetworkSherlock to provide enhanced scanning capabilities, giving users deeper insights into network vulnerabilities and potential threats. 
+By combining local port scanning with Shodan's extensive database, NetworkSherlock offers a comprehensive tool for identifying and analyzing network security issues.
+
 
 ## **Features**
 
@@ -13,8 +17,11 @@ Capable of scanning IP ranges, CIDR blocks, and multiple targets efficiently, Ne
 - Multi-threading support for fast scanning operations.
 - Option to save scan results to a file.
 - Provides detailed version information.
-
-## Installation
+- Colorful console output for better readability.
+- Shodan integration for enhanced scanning capabilities.
+- Configuration file support for Shodan API key.
+- 
+## **Installation**
 NetworkSherlock requires Python 3.6 or later.
 
 1. Clone the repository:
@@ -25,14 +32,22 @@ NetworkSherlock requires Python 3.6 or later.
     ```bash
     pip install -r requirements.txt
     ```
+## Configuration
 
-## Usage
+Update the `networksherlock.cfg` file with your Shodan API key:
+
+```ini
+[SHODAN]
+api_key = YOUR_SHODAN_API_KEY
+```
+
+## **Usage**
 
 ```bash
 python3 networksherlock.py --help
 usage: networksherlock.py [-h] [-p PORTS] [-t THREADS] [-P {tcp,udp}] [-V] [-s SAVE_RESULTS] [-c] target
 
-Port Scan Tool
+NetworkSherlock: Port Scan Tool
 
 positional arguments:
   target                Target IP address(es), range, or CIDR (e.g., 192.168.1.1, 192.168.1.1-192.168.1.5,
@@ -50,8 +65,10 @@ options:
   -s SAVE_RESULTS, --save-results SAVE_RESULTS
                         File to save scan results
   -c, --ping-check      Perform ping check before scanning
+  --use-shodan          Enable Shodan integration for additional information
+
 ```
-### Basic Parameters
+### **Basic Parameters**
 
 - `target`: The target IP address(es), IP range, or CIDR block to scan.
 - `-p`, `--ports`: Ports to scan (e.g., 1-1000, 22,80,443).
@@ -60,6 +77,7 @@ options:
 - `-V`, `--version-info`: Obtain version information during banner grabbing.
 - `-s`, `--save-results`: Save results to the specified file.
 - `-c`, `--ping-check`: Perform a ping check before scanning.
+- `--use-shodan`: Enable Shodan integration.
 
 ## Example Usage
 
@@ -98,6 +116,17 @@ Scan using a specific protocol (TCP or UDP):
 ```bash
 python networksherlock.py 192.168.1.1 -p 53 -P udp
 ```
+
+### Scan with Shodan
+```bash
+python networksherlock.py 192.168.1.1 --use-shodan
+```
+
+### Scan Multiple Targets with Shodan
+```bash
+python networksherlock.py 192.168.1.1,192.168.1.2 -p 22,80,443 -V --use-shodan
+```
+
 
 ### Banner Grabbing and Save Results
 Perform a detailed scan with banner grabbing and save results to a file:
@@ -188,7 +217,7 @@ Port        Status   Service           VERSION
 ```
 
 ## Contributing
-Contributions are welcome! To contribute to WordGen, follow these steps:
+Contributions are welcome! To contribute to NetworkSherlock, follow these steps:
 
 1. Fork the repository.
 2. Create a new branch for your feature or bug fix.
@@ -197,11 +226,11 @@ Contributions are welcome! To contribute to WordGen, follow these steps:
 5. Open a pull request in the main repository.
 
 ## Contact
-
-- LinkedIn: https://www.linkedin.com/in/halil-ibrahim-deniz/
-- TryHackMe: https://tryhackme.com/p/halilovic
-- Instagram: https://www.instagram.com/deniz.halil333/
-- YouTube: https://www.youtube.com/c/HalilDeniz
+- Linktr :[Halil Deniz](https://linktr.ee/halildeniz)
+- LinkedIn  : [Halil İbrahim Deniz](https://www.linkedin.com/in/halil-ibrahim-deniz/)
+- TryHackMe : [halilovic](https://tryhackme.com/p/halilovic)
+- Instagram : [deniz.halil333](https://www.instagram.com/deniz.halil333/)
+- YouTube   : [HalilDeniz](https://www.youtube.com/c/HalilDeniz)
 - Email: halildeniz313@gmail.com
 
 

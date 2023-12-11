@@ -66,6 +66,7 @@ options:
   -s SAVE_RESULTS, --save-results SAVE_RESULTS
                         File to save scan results
   -c, --ping-check      Perform ping check before scanning
+  -ad, --arp-discover: Perform ARP discovery on the specified network.
   --use-shodan          Enable Shodan integration for additional information
 
 ```

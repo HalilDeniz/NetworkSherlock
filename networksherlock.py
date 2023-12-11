@@ -1,5 +1,6 @@
+#!/usr/bin/env python
+
 import sys
-import time
 import shodan
 import socket
 import argparse
@@ -10,9 +11,13 @@ import configparser
 from queue import Queue
 from colorama import Fore, Style, init
 
+from core.arpdiscover import ArpDiscover
+from plugins.protocolscan.ftpanonloginscanner import FtpAnonLoginScanner
+from plugins.onlinescanner.shodanscanner import ShodanScanner
+
 init(autoreset=True)
 
-class PortScanner:
+class NetworkSherlock:
     def __init__(self, targets, ports, threads=10, protocol='tcp', version_info=False, save_results=None, ping_check=False, config_file='networksherlock.cfg', use_shodan=False):
         self.targets = targets
         self.ports = ports
@@ -25,16 +30,9 @@ class PortScanner:
         self.config_file = config_file
         self.use_shodan = use_shodan
         if self.use_shodan:
-            self.shodan_key = self.load_shodan_key()
-            self.shodan_api = shodan.Shodan(self.shodan_key) if self.shodan_key else None
+            self.shodan_scanner = ShodanScanner(self.config_file)
         else:
-            self.shodan_api = None
-
-
-    def load_shodan_key(self):
-        config = configparser.ConfigParser()
-        config.read(self.config_file)
-        return config.get('SHODAN', 'api_key', fallback=None)
+            self.shodan_scanner = None
 
     def format_scan_time(self, seconds):
         minutes, seconds = divmod(seconds, 60)
@@ -68,32 +66,31 @@ class PortScanner:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM if self.protocol == 'tcp' else socket.SOCK_DGRAM)
         sock.settimeout(1)
         result = sock.connect_ex((self.ip, port))
+
         if result == 0:
             try:
                 service = socket.getservbyport(port, self.protocol)
             except OSError:
                 service = "unknown"
+
+            if port == 21:
+                ftp_scanner = FtpAnonLoginScanner(self.ip)
+                if ftp_scanner.check_anon_login():
+                    self.ftp_anon_accessible.append(port)
+
             banner = ""
             shodan_info = ""
             if self.version_info:
                 banner = self.banner_grabbing(self.ip, port)
-            if self.use_shodan and self.shodan_key:
-                try:
-                    shodan_result = self.shodan_api.host(socket.gethostbyname(self.ip))
-                    os_info = shodan_result.get('os', None)
-                    if os_info:
-                        shodan_info += f"   \t{' '*5}{Fore.CYAN}- OS     : {Style.RESET_ALL}{os_info}\n"
-                    for service_info in shodan_result.get('data', []):
-                        product = service_info.get('product')
-                        version = service_info.get('version')
-                        if product or version:
-                            shodan_info += f"   \t{' '*5}{Fore.CYAN}- Service:{Style.RESET_ALL} {product or 'Unknown'} Version: {version or 'Unknown'}\n"
-                except shodan.APIError as e:
-                    pass
+
+            if self.use_shodan and self.shodan_scanner:
+                shodan_result = self.shodan_scanner.perform_scan(socket.gethostbyname(self.ip))
+                shodan_info = self.shodan_scanner.format_shodan_info(shodan_result)
+
             if self.use_shodan:
                 port_info = f"{port:<4}/{self.protocol}     open     {service:<14} {banner}\n{Fore.BLUE}From Shodan:{Style.RESET_ALL}\n{shodan_info}"
             else:
-                port_info = f"{port:<4}/{self.protocol}     open     {service:<14} {banner}{shodan_info}"
+                port_info = f"{port:<4}/{self.protocol}     open     {service:<14} {banner}"
 
             self.open_ports.append(port_info)
         sock.close()
@@ -129,13 +126,18 @@ class PortScanner:
         return parsed_targets
 
     def scan(self):
+        if self.targets is None:
+            print("Missing target argument. Use --help for more information.")
+            return
         targets = self.parse_targets(self.targets)
         for target in targets:
             self.ip = target
             self.open_ports = []
+            self.smb_scan_results = {}
+            self.ftp_anon_accessible = []
 
             if self.ping_check and not self.ping_check():
-                continue  # Eğer ping başarısızsa, sonraki hedefe geç
+                continue
 
             # Port listesi oluştur
             if "-" in self.ports:
@@ -179,8 +181,13 @@ class PortScanner:
                     print(f"{Fore.RED}Port        Status   Service           VERSION{Style.RESET_ALL}")
                 else:
                     print(f"{Fore.RED}Port        Status   Service{Style.RESET_ALL}")
+
             for port_info in self.open_ports:
                 print(port_info)
+
+            if self.version_info and self.ftp_anon_accessible:
+                for port in self.ftp_anon_accessible:
+                    print(f"{Fore.GREEN}[+]{Style.RESET_ALL} Anonymous FTP login possible at: {Fore.BLUE}{self.ip}:{port}{Style.RESET_ALL}")
 
             if self.save_results:  # Sonuçları dosyaya yaz
                 with open(self.save_results, "a") as file:
@@ -197,18 +204,38 @@ class PortScanner:
         print(f"---------------------------------------------")
 
 
+# Ana program akışı
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='NetworkSherlock: Port Scan Tool')
-    parser.add_argument('target', type=str, help='Target IP address(es), range, or CIDR (e.g., 192.168.1.1, 192.168.1.1-192.168.1.5, 192.168.1.0/24)')
+    parser.add_argument('target', type=str, nargs='?', help='Target IP address(es), range, or CIDR (e.g., 192.168.1.1, 192.168.1.1-192.168.1.5, 192.168.1.0/24)')
     parser.add_argument('-p', '--ports', type=str, default='1-1000', help='Ports to scan (e.g. 1-1024, 21,22,80, or 80)')
     parser.add_argument('-t', '--threads', type=int, default=10, help='Number of threads to use')
     parser.add_argument('-P', '--protocol', type=str, default='tcp', choices=['tcp', 'udp'], help='Protocol to use for scanning')
     parser.add_argument('-V', '--version-info', action='store_true', help='Used to get version information')
     parser.add_argument('-s', '--save-results', type=str, help='File to save scan results')
     parser.add_argument('-c', '--ping-check', action='store_true', help='Perform ping check before scanning')
+    parser.add_argument('-ad','--arp-discover', type=str, help='Perform ARP discovery on the specified network (e.g., 10.0.2.0/24)')
+    parser.add_argument('-i', '--iface', type=str, help='Network interface to use for ARP discovery')
     parser.add_argument('--use-shodan', action='store_true', help='Enable Shodan integration for additional information')
-
     args = parser.parse_args()
 
-    scanner = PortScanner(args.target, args.ports, args.threads, args.protocol, args.version_info, args.save_results, args.ping_check, use_shodan=args.use_shodan)
-    scanner.scan()
+    if len(sys.argv) == 1:
+        parser.print_help(sys.stderr)
+        sys.exit(1)
+
+    if args.arp_discover and args.iface:
+        arp_scanner = ArpDiscover(args.iface)
+        devices = arp_scanner.scan(args.arp_discover)
+        if devices:
+            ip_width           = max(len(device['ip']) for device in devices) + 1
+            mac_width          = max(len(device['mac']) for device in devices) + 1
+            manufacturer_width = max(len(device['manufacturer']) for device in devices) + 1
+            for device in devices:
+                print(f"{Fore.CYAN}IP:{Style.RESET_ALL} {device['ip']:<{ip_width}} {Fore.CYAN}MAC:{Style.RESET_ALL} {device['mac']:<{mac_width}} {Fore.CYAN}Manufacturer:{Style.RESET_ALL} {device['manufacturer']:<{manufacturer_width}}")
+        else:
+            print("No devices found on the network.")
+    elif args.arp_discover or args.iface:
+        parser.error("ARP discovery requires both --arp-discover and --iface arguments.")
+    else:
+        scanner = NetworkSherlock(args.target, args.ports, args.threads, args.protocol, args.version_info, args.save_results, args.ping_check, use_shodan=args.use_shodan)
+        scanner.scan()

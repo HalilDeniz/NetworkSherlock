@@ -1,24 +1,33 @@
 #!/usr/bin/env python
 
 import sys
-import shodan
 import socket
 import argparse
 import threading
 import ipaddress
 import subprocess
-import configparser
 from queue import Queue
 from colorama import Fore, Style, init
 
-from core.arpdiscover import ArpDiscover
+from core.modules.arpdiscover import ArpDiscover
+from pythonProject.MyProject.NetworkSherlock.plugins.cveScanner.CVE_2020_0796_scanner import SMBVulnerabilityChecker
+from plugins.cveScanner.CVE_2014_6271_scanner import ShellshockScanner
+from plugins.cveScanner.CVE_2017_0144_scanner import EternalBlueScanner
+from plugins.cveScanner.CVE_2019_0708_scanner import BlueKeepScanner
+from plugins.cveScanner.CVE_2017_5638_scanner import ApacheStrutsScanner
+
 from plugins.protocolscan.ftpanonloginscanner import FtpAnonLoginScanner
+from plugins.protocolscan.sllscanner import TLSCertScanner
+from plugins.protocolscan.osfingerscanner import OSFingerprintScanner
+
 from plugins.onlinescanner.shodanscanner import ShodanScanner
+
+#from plugins.protocolscan.smbscanner import SMBScanner
 
 init(autoreset=True)
 
 class NetworkSherlock:
-    def __init__(self, targets, ports, threads=10, protocol='tcp', version_info=False, save_results=None, ping_check=False, config_file='networksherlock.cfg', use_shodan=False):
+    def __init__(self, targets, ports, threads=10, protocol='tcp', version_info=False, save_results=None, ping_check=False, config_file='config/networksherlock.cfg', use_shodan=False):
         self.targets = targets
         self.ports = ports
         self.threads = threads
@@ -29,6 +38,7 @@ class NetworkSherlock:
         self.ip = None
         self.config_file = config_file
         self.use_shodan = use_shodan
+        self.ssl_cert_details = {}
         if self.use_shodan:
             self.shodan_scanner = ShodanScanner(self.config_file)
         else:
@@ -77,6 +87,16 @@ class NetworkSherlock:
                 ftp_scanner = FtpAnonLoginScanner(self.ip)
                 if ftp_scanner.check_anon_login():
                     self.ftp_anon_accessible.append(port)
+
+
+            if port == 443 and self.version_info:
+                tls_scanner = TLSCertScanner(self.ip)
+                try:
+                    cert_details = tls_scanner.get_certificate_details()
+                    if cert_details:
+                        self.ssl_cert_details[self.ip] = cert_details
+                except Exception as e:
+                    pass
 
             banner = ""
             shodan_info = ""
@@ -133,7 +153,6 @@ class NetworkSherlock:
         for target in targets:
             self.ip = target
             self.open_ports = []
-            self.smb_scan_results = {}
             self.ftp_anon_accessible = []
 
             if self.ping_check and not self.ping_check():
@@ -189,6 +208,53 @@ class NetworkSherlock:
                 for port in self.ftp_anon_accessible:
                     print(f"{Fore.GREEN}[+]{Style.RESET_ALL} Anonymous FTP login possible at: {Fore.BLUE}{self.ip}:{port}{Style.RESET_ALL}")
 
+            if args.os_fingerprint and self.open_ports:
+                os_scanner = OSFingerprintScanner(self.ip)
+                os_guess = os_scanner.guess_os()
+                print(f"{Fore.GREEN}[+]{Style.RESET_ALL} OS Guess for The               : {Fore.BLUE}{os_guess}{Style.RESET_ALL}")
+
+            if args.vuln and '445' in self.ports.split(','):
+                vuln_checker = SMBVulnerabilityChecker(self.ip)
+                if vuln_checker.connect():
+                    vuln_checker.send_packet()
+                    vuln_checker.check_vulnerability()
+                    vuln_checker.close()
+
+
+            if self.ip in self.ssl_cert_details:
+                cert_details = self.ssl_cert_details[self.ip]
+                if "error" not in cert_details:
+                    print(f"{Fore.GREEN}[+] {Style.RESET_ALL}SSL/TLS Certificate Details    : {Fore.BLUE}{self.ip}{Style.RESET_ALL}")
+                    for key, value in cert_details.items():
+                        print(f"\t{Fore.GREEN}{key:<13}:{Style.RESET_ALL} {value}")
+                else:
+                    pass
+
+            if args.vuln:
+                for port in [80, 443]:
+                    full_url = f"https://{self.ip}/cgi-bin/test.cgi" if port == 443 else f"http://{self.ip}/cgi-bin/test.cgi"
+                    shellshock_scanner = ShellshockScanner(full_url)
+                    shellshock_scanner.scan_for_shellshock()
+
+            if args.vuln and ("3389" in self.ports or "-" in self.ports):
+                bluekeep_scanner = BlueKeepScanner(self.ip)
+                bluekeep_scanner.scan_for_bluekeep()
+
+            if args.vuln:
+                smb_ports = [139, 445]
+                for port in smb_ports:
+                    if str(port) in self.ports or '-' in self.ports:
+                        eternal_blue_scanner = EternalBlueScanner(self.ip)
+                        eternal_blue_scanner.scan_for_eternalblue()
+
+            if args.vuln and ("80" in self.ports or "443" in self.ports or "-" in self.ports):
+                struts_scanner = ApacheStrutsScanner(f"http://{self.ip}")
+                struts_scanner.scan_for_apache_struts()
+                struts_scanner = ApacheStrutsScanner(f"https://{self.ip}")
+                struts_scanner.scan_for_apache_struts()
+
+
+
             if self.save_results:  # Sonuçları dosyaya yaz
                 with open(self.save_results, "a") as file:
                     file.write(f"********************************************\n")
@@ -214,6 +280,8 @@ if __name__ == '__main__':
     parser.add_argument('-V', '--version-info', action='store_true', help='Used to get version information')
     parser.add_argument('-s', '--save-results', type=str, help='File to save scan results')
     parser.add_argument('-c', '--ping-check', action='store_true', help='Perform ping check before scanning')
+    parser.add_argument('-O','--os-fingerprint', action='store_true', help='Enable OS fingerprinting for each target (It may take a long time)')
+    parser.add_argument('-v', '--vuln', action='store_true', help='Detect previously discovered vulnerabilities (It may take a long time)')
     parser.add_argument('-ad','--arp-discover', type=str, help='Perform ARP discovery on the specified network (e.g., 10.0.2.0/24)')
     parser.add_argument('-i', '--iface', type=str, help='Network interface to use for ARP discovery')
     parser.add_argument('--use-shodan', action='store_true', help='Enable Shodan integration for additional information')

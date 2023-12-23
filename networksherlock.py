@@ -10,7 +10,7 @@ from queue import Queue
 from colorama import Fore, Style, init
 
 from core.modules.arpdiscover import ArpDiscover
-from pythonProject.MyProject.NetworkSherlock.plugins.cveScanner.CVE_2020_0796_scanner import SMBVulnerabilityChecker
+from plugins.cveScanner.CVE_2020_0796_scanner import SMBVulnerabilityChecker
 from plugins.cveScanner.CVE_2014_6271_scanner import ShellshockScanner
 from plugins.cveScanner.CVE_2017_0144_scanner import EternalBlueScanner
 from plugins.cveScanner.CVE_2019_0708_scanner import BlueKeepScanner

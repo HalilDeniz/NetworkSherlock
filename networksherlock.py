@@ -10,21 +10,38 @@ from queue import Queue
 from colorama import Fore, Style, init
 
 from core.modules.arpdiscover import ArpDiscover
-from plugins.cveScanner.CVE_2020_0796_scanner import SMBVulnerabilityChecker
-from plugins.cveScanner.CVE_2014_6271_scanner import ShellshockScanner
-from plugins.cveScanner.CVE_2017_0144_scanner import EternalBlueScanner
-from plugins.cveScanner.CVE_2019_0708_scanner import BlueKeepScanner
-from plugins.cveScanner.CVE_2017_5638_scanner import ApacheStrutsScanner
+from core.modules.arpdiscover import ArpDiscover
+
+from plugins.main import CVE_Scanner_Main
 
 from plugins.protocolscan.ftpanonloginscanner import FtpAnonLoginScanner
 from plugins.protocolscan.sllscanner import TLSCertScanner
 from plugins.protocolscan.osfingerscanner import OSFingerprintScanner
-
+from plugins.protocolscan.bannerScanner import BannerScanner
 from plugins.onlinescanner.shodanscanner import ShodanScanner
+from plugins.webScanner.robotsscanner import RobotsScanner
+from plugins.webScanner.wafScanner import WAFDetector
 
 #from plugins.protocolscan.smbscanner import SMBScanner
 
 init(autoreset=True)
+
+
+def read_ips_from_file(file_path):
+    ips = []
+    try:
+        with open(file_path, 'r') as file:
+            for line in file:
+                ip = line.strip()
+                if ip:  # Boş satırları atla
+                    ips.append(ip)
+    except FileNotFoundError:
+        print(f"Error: File not found at '{file_path}'")
+    except IOError:
+        print(f"Error: Could not read file '{file_path}'")
+    return ips
+
+
 
 class NetworkSherlock:
     def __init__(self, targets, ports, threads=10, protocol='tcp', version_info=False, save_results=None, ping_check=False, config_file='config/networksherlock.cfg', use_shodan=False):
@@ -48,30 +65,6 @@ class NetworkSherlock:
         minutes, seconds = divmod(seconds, 60)
         return f"{int(minutes)} minute {seconds:.2f} seconds"
 
-    def banner_grabbing(self, ip, port):
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(1)
-            sock.connect((ip, port))
-            if port == 80 or port == 443:
-                sock.send(b"HEAD / HTTP/1.1\r\nHost: " + ip.encode() + b"\r\n\r\n")
-            elif port == 21:
-                sock.send(b"USER anonymous\r\n")
-            elif port == 22:
-                sock.send(b"SSH-2.0-OpenSSH_7.3\r\n")
-            elif port == 25:
-                sock.send(b"HELO " + ip.encode() + b"\r\n")
-            elif port == 23:
-                sock.send(b"\xFF\xFD\x18\xFF\xFD\x20\xFF\xFD\x23\xFF\xFD\x27\xFF\xFA\x1F\x00\x50\x00\x18\xFF\xF0")
-            elif port == 3306:
-                sock.send(b"\x05\x00\x00\x01\x85\xa6\x03\x00\x00\x00\x00\x21\x00\x00\x00\x02\x3f\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
-            elif port == 139 or port == 445:
-                sock.send(b"\x00\x00\x00\x85\xff\x53\x4d\x42\x72\x00\x00\x00\x00\x18\x53\xc8\x17\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x2f\x4b\x00\x00\x00\x00\x00\x31\x00\x02\x50\x43\x20\x4e\x45\x54\x57\x4f\x52\x4b\x20\x50\x52\x4f\x47\x52\x41\x4d\x20\x31\x2e\x30\x00\x02\x4c\x41\x4e\x4d\x41\x4e\x31\x2e\x30\x00\x02\x57\x69\x6e\x64\x6f\x77\x73\x20\x66\x6f\x72\x20\x57\x6f\x72\x6b\x67\x72\x6f\x75\x70\x73\x20\x33\x2e\x31\x61\x00\x02\x4c\x4d\x31\x2e\x32\x58\x30\x30\x32\x00\x02\x4c\x41\x4e\x4d\x41\x4e\x32\x2e\x31\x00\x02\x4e\x54\x20\x4c\x4d\x20\x30\x2e\x31\x32\x00")
-            banner = sock.recv(1024).decode("utf-8", errors="ignore").strip()
-            return banner.split("\n")[0]
-        except Exception as e:
-            return ""
-
     def port_scan(self, port):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM if self.protocol == 'tcp' else socket.SOCK_DGRAM)
         sock.settimeout(1)
@@ -88,7 +81,6 @@ class NetworkSherlock:
                 if ftp_scanner.check_anon_login():
                     self.ftp_anon_accessible.append(port)
 
-
             if port == 443 and self.version_info:
                 tls_scanner = TLSCertScanner(self.ip)
                 try:
@@ -101,7 +93,8 @@ class NetworkSherlock:
             banner = ""
             shodan_info = ""
             if self.version_info:
-                banner = self.banner_grabbing(self.ip, port)
+                banner_scanner = BannerScanner(self.ip, port)
+                banner = banner_scanner.banner_grabbing()
 
             if self.use_shodan and self.shodan_scanner:
                 shodan_result = self.shodan_scanner.perform_scan(socket.gethostbyname(self.ip))
@@ -146,129 +139,134 @@ class NetworkSherlock:
         return parsed_targets
 
     def scan(self):
-        if self.targets is None:
+        if args.ip_file:
+            targets = read_ips_from_file(args.ip_file)
+        elif self.targets:
+            targets = self.parse_targets(self.targets)
+        else:
             print("Missing target argument. Use --help for more information.")
             return
-        targets = self.parse_targets(self.targets)
-        for target in targets:
-            self.ip = target
-            self.open_ports = []
-            self.ftp_anon_accessible = []
 
-            if self.ping_check and not self.ping_check():
-                continue
+        try:
+            for target in targets:
+                self.ip = target
+                self.open_ports = []
+                self.ftp_anon_accessible = []
 
-            # Port listesi oluştur
-            if "-" in self.ports:
-                start_port, end_port = map(int, self.ports.split('-'))
-                ports = range(start_port, end_port + 1)
-            elif "," in self.ports:
-                ports = map(int, self.ports.split(','))
-            elif self.ports.isdigit():
-                ports = [int(self.ports)]
-            else:
-                print("[red]Invalid port format.[/red]")
-                continue
+                if self.ping_check and not self.ping_check():
+                    continue
 
-            # Thread'leri başlat
-            self.port_queue = Queue()
-            for port in ports:
-                self.port_queue.put(port)
+                # Port listesi oluştur
+                if "-" in self.ports:
+                    start_port, end_port = map(int, self.ports.split('-'))
+                    ports = range(start_port, end_port + 1)
+                elif "," in self.ports:
+                    ports = map(int, self.ports.split(','))
+                elif self.ports.isdigit():
+                    ports = [int(self.ports)]
+                else:
+                    print(f"{Fore.RED}Invalid port format.{Style.RESET_ALLs}")
+                    continue
 
-            threads = []
-            for _ in range(self.threads):
-                t = threading.Thread(target=self.thread_process)
-                t.start()
-                threads.append(t)
+                # Thread'leri başlat
+                self.port_queue = Queue()
+                for port in ports:
+                    self.port_queue.put(port)
 
-            for _ in range(self.threads):
-                self.port_queue.put(None)
+                threads = []
+                for _ in range(self.threads):
+                    t = threading.Thread(target=self.thread_process)
+                    t.start()
+                    threads.append(t)
 
+                for _ in range(self.threads):
+                    self.port_queue.put(None)
+
+                for t in threads:
+                    t.join()
+
+                # Açık portları yazdır
+                if self.open_ports:
+                    print(f"********************************************")
+                    print(f"{Fore.GREEN}Scanning target:{Style.RESET_ALL} {target}")
+                    print(f"{Fore.GREEN}Scanning IP    :{Style.RESET_ALL} {socket.gethostbyname(self.ip)}")
+                    print(f"{Fore.GREEN}Ports          :{Style.RESET_ALL} {self.ports}")
+                    print(f"{Fore.GREEN}Threads        :{Style.RESET_ALL} {self.threads}")
+                    print(f"{Fore.GREEN}Protocol       :{Style.RESET_ALL} {self.protocol}")
+                    print(f"---------------------------------------------")
+                    if self.version_info:
+                        print(f"{Fore.RED}Port        Status   Service           VERSION{Style.RESET_ALL}")
+                    else:
+                        print(f"{Fore.RED}Port        Status   Service{Style.RESET_ALL}")
+
+                for port_info in self.open_ports:
+                    print(port_info)
+
+                if self.version_info and ('80' in self.ports.split(',') or '443' in self.ports.split(',')):
+                    http_url = f"http://{self.ip}/robots.txt"
+                    https_url = f"https://{self.ip}"
+
+                    robots_scanner_https = RobotsScanner(https_url)
+                    robots_result_https = robots_scanner_https.run_scan()
+                    if robots_result_https:
+                        print(f"{Fore.GREEN}[+]{Style.RESET_ALL} Robots.txt                     : {Fore.BLUE}{robots_result_https}{Style.RESET_ALL}")
+                    else:
+                        pass
+
+                if args.waf and ('443' in self.ports.split(',')):
+                    https_url = f"https://{self.ip}"
+
+                    waf_detector_https = WAFDetector(https_url)
+                    waf_result_https = waf_detector_https.detect_waf()
+                    print(f"{Fore.GREEN}[+]{Style.RESET_ALL} WAF Detection                  : {Fore.BLUE}{waf_result_https}{Style.RESET_ALL}")
+
+
+                if self.version_info and self.ftp_anon_accessible:
+                    for port in self.ftp_anon_accessible:
+                        print(f"{Fore.GREEN}[+]{Style.RESET_ALL} Anonymous FTP login possible at: {Fore.BLUE}{self.ip}:{port}{Style.RESET_ALL}")
+
+                if args.vuln:
+                    cve_scanner = CVE_Scanner_Main(self.ip)
+                    vuln_results = cve_scanner.run_all_scans(self.ports.split(','))
+                    for vuln_name, is_vulnerable in vuln_results.items():
+                        if is_vulnerable:
+                            print(f"{Fore.GREEN}[+]{Style.RESET_ALL} {self.ip} is vulnerable to {vuln_name}")
+
+
+                if args.os_fingerprint and self.open_ports:
+                    os_scanner = OSFingerprintScanner(self.ip)
+                    os_guess = os_scanner.guess_os()
+                    print(f"{Fore.GREEN}[+]{Style.RESET_ALL} OS Guess for The               : {Fore.BLUE}{os_guess}{Style.RESET_ALL}")
+
+
+
+                if self.ip in self.ssl_cert_details:
+                    cert_details = self.ssl_cert_details[self.ip]
+                    if "error" not in cert_details:
+                        print(f"{Fore.GREEN}[+] {Style.RESET_ALL}SSL/TLS Certificate Details    : {Fore.BLUE}{self.ip}{Style.RESET_ALL}")
+                        for key, value in cert_details.items():
+                            print(f"\t{Fore.GREEN}{key:<13}:{Style.RESET_ALL} {value}")
+                    else:
+                        pass
+
+                if self.save_results:  # Sonuçları dosyaya yaz
+                    with open(self.save_results, "a") as file:
+                        file.write(f"********************************************\n")
+                        file.write(f"Scanning target: {target}\n")
+                        file.write(f"Scanning IP    : {socket.gethostbyname(self.ip)}\n")
+                        file.write(f"Ports          : {self.ports}\n")
+                        file.write(f"Threads        : {self.threads}\n")
+                        file.write(f"Protocol       : {self.protocol}\n")
+                        file.write(f"---------------------------------------------\n")
+                        for port_info in self.open_ports:
+                            file.write(f"{port_info}\n")
+                        #file.write("---------------------------------------------\n")
+            print(f"---------------------------------------------")
+        except KeyboardInterrupt:
+            print(f"\n{Fore.RED}[!] Interrupted by user. The program is terminating...{Style.RESET_ALL}")
             for t in threads:
                 t.join()
-
-            # Açık portları yazdır
-            if self.open_ports:
-                print(f"********************************************")
-                print(f"{Fore.GREEN}Scanning target:{Style.RESET_ALL} {target}")
-                print(f"{Fore.GREEN}Scanning IP    :{Style.RESET_ALL} {socket.gethostbyname(self.ip)}")
-                print(f"{Fore.GREEN}Ports          :{Style.RESET_ALL} {self.ports}")
-                print(f"{Fore.GREEN}Threads        :{Style.RESET_ALL} {self.threads}")
-                print(f"{Fore.GREEN}Protocol       :{Style.RESET_ALL} {self.protocol}")
-                print(f"---------------------------------------------")
-                if self.version_info:
-                    print(f"{Fore.RED}Port        Status   Service           VERSION{Style.RESET_ALL}")
-                else:
-                    print(f"{Fore.RED}Port        Status   Service{Style.RESET_ALL}")
-
-            for port_info in self.open_ports:
-                print(port_info)
-
-            if self.version_info and self.ftp_anon_accessible:
-                for port in self.ftp_anon_accessible:
-                    print(f"{Fore.GREEN}[+]{Style.RESET_ALL} Anonymous FTP login possible at: {Fore.BLUE}{self.ip}:{port}{Style.RESET_ALL}")
-
-            if args.os_fingerprint and self.open_ports:
-                os_scanner = OSFingerprintScanner(self.ip)
-                os_guess = os_scanner.guess_os()
-                print(f"{Fore.GREEN}[+]{Style.RESET_ALL} OS Guess for The               : {Fore.BLUE}{os_guess}{Style.RESET_ALL}")
-
-            if args.vuln and '445' in self.ports.split(','):
-                vuln_checker = SMBVulnerabilityChecker(self.ip)
-                if vuln_checker.connect():
-                    vuln_checker.send_packet()
-                    vuln_checker.check_vulnerability()
-                    vuln_checker.close()
-
-
-            if self.ip in self.ssl_cert_details:
-                cert_details = self.ssl_cert_details[self.ip]
-                if "error" not in cert_details:
-                    print(f"{Fore.GREEN}[+] {Style.RESET_ALL}SSL/TLS Certificate Details    : {Fore.BLUE}{self.ip}{Style.RESET_ALL}")
-                    for key, value in cert_details.items():
-                        print(f"\t{Fore.GREEN}{key:<13}:{Style.RESET_ALL} {value}")
-                else:
-                    pass
-
-            if args.vuln:
-                for port in [80, 443]:
-                    full_url = f"https://{self.ip}/cgi-bin/test.cgi" if port == 443 else f"http://{self.ip}/cgi-bin/test.cgi"
-                    shellshock_scanner = ShellshockScanner(full_url)
-                    shellshock_scanner.scan_for_shellshock()
-
-            if args.vuln and ("3389" in self.ports or "-" in self.ports):
-                bluekeep_scanner = BlueKeepScanner(self.ip)
-                bluekeep_scanner.scan_for_bluekeep()
-
-            if args.vuln:
-                smb_ports = [139, 445]
-                for port in smb_ports:
-                    if str(port) in self.ports or '-' in self.ports:
-                        eternal_blue_scanner = EternalBlueScanner(self.ip)
-                        eternal_blue_scanner.scan_for_eternalblue()
-
-            if args.vuln and ("80" in self.ports or "443" in self.ports or "-" in self.ports):
-                struts_scanner = ApacheStrutsScanner(f"http://{self.ip}")
-                struts_scanner.scan_for_apache_struts()
-                struts_scanner = ApacheStrutsScanner(f"https://{self.ip}")
-                struts_scanner.scan_for_apache_struts()
-
-
-
-            if self.save_results:  # Sonuçları dosyaya yaz
-                with open(self.save_results, "a") as file:
-                    file.write(f"********************************************\n")
-                    file.write(f"Scanning target: {target}\n")
-                    file.write(f"Scanning IP    : {socket.gethostbyname(self.ip)}\n")
-                    file.write(f"Ports          : {self.ports}\n")
-                    file.write(f"Threads        : {self.threads}\n")
-                    file.write(f"Protocol       : {self.protocol}\n")
-                    file.write(f"---------------------------------------------\n")
-                    for port_info in self.open_ports:
-                        file.write(f"{port_info}\n")
-                    #file.write("---------------------------------------------\n")
-        print(f"---------------------------------------------")
-
+            sys.exit(0)
 
 # Ana program akışı
 if __name__ == '__main__':
@@ -282,6 +280,8 @@ if __name__ == '__main__':
     parser.add_argument('-c', '--ping-check', action='store_true', help='Perform ping check before scanning')
     parser.add_argument('-O','--os-fingerprint', action='store_true', help='Enable OS fingerprinting for each target (It may take a long time)')
     parser.add_argument('-v', '--vuln', action='store_true', help='Detect previously discovered vulnerabilities (It may take a long time)')
+    parser.add_argument('--waf','--waf-detect', action='store_true', help='Detect Web Application Firewall (WAF) for each target')
+    parser.add_argument('-f', '--ip-file', type=str, help='Read target IP addresses from a file')
     parser.add_argument('-ad','--arp-discover', type=str, help='Perform ARP discovery on the specified network (e.g., 10.0.2.0/24)')
     parser.add_argument('-i', '--iface', type=str, help='Network interface to use for ARP discovery')
     parser.add_argument('--use-shodan', action='store_true', help='Enable Shodan integration for additional information')
